@@ -1,0 +1,29 @@
+name: Train RL Agent
+
+on:
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v2
+        
+      - name: Install Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+          
+      - name: Install required packages
+        run: |
+          pip install numpy matplotlib
+          
+      - name: Start training
+        run: python train.py --episodes 100
+        
+      - name: Save results
+        uses: actions/upload-artifact@v2
+        with:
+          name: training-results
+          path: rewards.png
