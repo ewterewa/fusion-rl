@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="refresh" content="0; url=/fusion-rl/web/">
+    <style>
+        body {
+            background: #d4e4ff;
+            font-family: system-ui;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .message {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3f7bc0;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        a {
+            color: #3f7bc0;
+            text-decoration: none;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="message">
+        <h2> Загрузка симулятора...</h2>
+        <div class="loader"></div>
+        <p>Если ничего не происходит через 2 секунды,</p>
+        <p>нажми <a href="/fusion-rl/web/">сюда</a>.</p>
+    </div>
+    <script>
+        setTimeout(function() {
+            window.location.href = "/fusion-rl/web/";
+        }, 1500);
+    </script>
+</body>
+</html>
