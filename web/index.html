@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Токамак симулятор</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: system-ui; }
+        body { background: #d4e4ff; display: flex; justify-content: center; padding: 20px; }
+        .container {
+            max-width: 1400px;
+            width: 100%;
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(12px);
+            border-radius: 32px;
+            padding: 24px;
+            display: grid;
+            grid-template-columns: 300px 1fr 300px;
+            gap: 20px;
+        }
+        .panel { background: rgba(245,250,255,0.9); border-radius: 24px; padding: 20px; border: 1px solid #bfd6ff; }
+        canvas { width: 100%; border-radius: 24px; background: #f0f7ff; border: 1px solid #bfd6ff; }
+        .slider-group { margin-bottom: 20px; }
+        .slider-label { display: flex; justify-content: space-between; margin-bottom: 5px; color: #1e3a6b; }
+        input { width: 100%; }
+        .value-badge { background: #e0edff; padding: 2px 10px; border-radius: 20px; }
+        button {
+            background: #d9eaff;
+            border: 1px solid #8bb2e8;
+            color: #10315e;
+            padding: 10px;
+            border-radius: 40px;
+            margin: 5px 0;
+            cursor: pointer;
+            width: 100%;
+        }
+        .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; }
+        .metric-card { background: #eaf2ff; border-radius: 16px; padding: 10px; }
+        .metric-number { font-size: 1.5rem; font-weight: bold; color: #12315e; }
+        .plot-container { display: flex; align-items: flex-end; height: 80px; gap: 2px; margin-top: 10px; }
+        .bar { flex: 1; background: #3f7bc0; min-height: 2px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="panel">
+        <h3>Управление</h3>
+        <div class="slider-group">
+            <div class="slider-label"><span>Ток Ip (MA)</span><span class="value-badge" id="ipDisplay">1.50</span></div>
+            <input type="range" id="ipSlider" min="0.8" max="2.5" value="1.5" step="0.01">
+        </div>
+        <div class="slider-group">
+            <div class="slider-label"><span>Бета β (%)</span><span class="value-badge" id="betaDisplay">2.40</span></div>
+            <input type="range" id="betaSlider" min="0.8" max="4.2" value="2.4" step="0.01">
+        </div>
+        <div class="slider-group">
+            <div class="slider-label"><span>Нагрев (MW)</span><span class="value-badge" id="heatDisplay">5.0</span></div>
+            <input type="range" id="heatSlider" min="0" max="15" value="5" step="0.2">
+        </div>
+        <button id="stepBtn">Шаг</button>
+        <button id="resetBtn">Сброс</button>
+    </div>
+    
+    <div>
+        <canvas id="canvas" width="600" height="400"></canvas>
+        <div class="metric-grid">
+            <div class="metric-card"><div>Плотность</div><div class="metric-number" id="neVal">0.82</div></div>
+            <div class="metric-card"><div>Температура</div><div class="metric-number" id="teVal">5.3</div></div>
+        </div>
+        <div class="panel">
+            <div>История тока</div>
+            <div class="plot-container" id="ipHistory"></div>
+        </div>
+    </div>
+    
+    <div class="panel">
+        <h3>RL агент</h3>
+        <div>Эпизод: <span id="episode">0</span></div>
+        <div>Награда: <span id="reward">0</span></div>
+        <div>ε: <span id="epsilon">0.30</span></div>
+        <button id="trainBtn">Обучать</button>
+        <div style="margin-top:20px;">
+            <h4>Результаты</h4>
+            <div id="results"></div>
+        </div>
+    </div>
+</div>
+<script>
+    class PlasmaModel {
+        constructor() {
+            this.ip = 1.5; this.beta = 2.4; this.ne = 0.82; this.te = 5.3;
+            this.q = 3.21; this.tearing = 0.02; this.rwm = 0.01; this.z = 0;
+            this.ipCmd = 1.5; this.betaCmd = 2.4; this.heat = 5; this.bVert = 2;
+            this.targetIp = 1.5; this.targetBeta = 2.4;
+            this.history = Array(60).fill(1.5);
+        }
+        step() {
+            this.ip += (this.ipCmd - this.ip)*0.05 + (Math.random()-0.5)*0.02;
+            this.beta += (this.betaCmd - this.beta)*0.03 + (this.heat-5)*0.01 + (Math.random()-0.5)*0.03;
+            this.te += (this.heat-5)*0.02 + (Math.random()-0.5)*0.1;
+            this.ne += (this.heat>7?0.02:-0.01) + (Math.random()-0.5)*0.02;
+            this.z += (this.bVert-2)*0.02 + (Math.random()-0.5)*0.01;
+            this.q = 3.2 + (1.5-this.ip)*0.5 - (this.bVert-2)*0.3;
+            let drive = Math.abs(this.ip-this.targetIp)/this.targetIp + Math.abs(this.beta-this.targetBeta)/this.targetBeta + Math.abs(this.z)*0.5;
+            this.tearing = Math.min(0.95, this.tearing*0.98 + drive*0.02);
+            this.rwm = Math.min(0.8, this.rwm*0.97 + drive*0.01);
+            this.ip = Math.max(0.6, Math.min(2.8, this.ip));
+            this.beta = Math.max(0.5, Math.min(4.5, this.beta));
+            this.history.shift(); this.history.push(this.ip);
+        }
+        getReward() {
+            let ipErr = Math.abs(this.ip-this.targetIp)/this.targetIp;
+            let betaErr = Math.abs(this.beta-this.targetBeta)/this.targetBeta;
+            return Math.exp(-3*(ipErr+betaErr))*10 - (this.tearing*0.7+this.rwm*0.3)*2 - Math.abs(this.z)*5;
+        }
+        isDisrupted() { return this.tearing>0.85 || this.rwm>0.7 || Math.abs(this.z)>0.15; }
+        reset() {
+            this.ip = 1.2+Math.random()*0.6; this.beta = 1.8+Math.random()*1.2;
+            this.ne = 0.5+Math.random()*0.8; this.te = 3+Math.random()*4;
+            this.q = 2.8+Math.random(); this.tearing = 0.05+Math.random()*0.1;
+            this.rwm = 0.02+Math.random()*0.1; this.z = (Math.random()-0.5)*0.1;
+            this.ipCmd = this.ip; this.betaCmd = this.beta; this.heat = 5; this.bVert = 2;
+            this.history = Array(60).fill(this.ip);
+        }
+    }
+    
+    let model = new PlasmaModel();
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    function draw() {
+        ctx.clearRect(0,0,600,400);
+        ctx.fillStyle = '#f0f7ff'; ctx.fillRect(0,0,600,400);
+        ctx.save(); ctx.translate(300,200);
+        ctx.strokeStyle = '#7fa2cf'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0,0,180,90,0,0,2*Math.PI); ctx.stroke();
+        let scale = 0.7 + 0.2*model.beta/3;
+        ctx.fillStyle = '#ffb27a';
+        ctx.beginPath(); ctx.ellipse(0,0,130*scale,65*scale,0,0,2*Math.PI); ctx.fill();
+        ctx.restore();
+        document.getElementById('neVal').innerText = model.ne.toFixed(2);
+        document.getElementById('teVal').innerText = model.te.toFixed(1);
+        let container = document.getElementById('ipHistory');
+        container.innerHTML = '';
+        model.history.forEach(v => {
+            let bar = document.createElement('div');
+            bar.className = 'bar';
+            bar.style.height = (v/2.5*80) + 'px';
+            container.appendChild(bar);
+        });
+    }
+    
+    document.getElementById('ipSlider').oninput = function(e) {
+        document.getElementById('ipDisplay').innerText = e.target.value;
+        model.ipCmd = parseFloat(e.target.value);
+        draw();
+    }
+    document.getElementById('betaSlider').oninput = function(e) {
+        document.getElementById('betaDisplay').innerText = e.target.value;
+        model.betaCmd = parseFloat(e.target.value);
+        draw();
+    }
+    document.getElementById('heatSlider').oninput = function(e) {
+        document.getElementById('heatDisplay').innerText = e.target.value;
+        model.heat = parseFloat(e.target.value);
+        draw();
+    }
+    document.getElementById('stepBtn').onclick = function() {
+        model.step();
+        document.getElementById('ipSlider').value = model.ip;
+        document.getElementById('ipDisplay').innerText = model.ip.toFixed(2);
+        document.getElementById('betaSlider').value = model.beta;
+        document.getElementById('betaDisplay').innerText = model.beta.toFixed(2);
+        draw();
+    }
+    document.getElementById('resetBtn').onclick = function() {
+        model.reset();
+        document.getElementById('ipSlider').value = model.ip;
+        document.getElementById('ipDisplay').innerText = model.ip.toFixed(2);
+        document.getElementById('betaSlider').value = model.beta;
+        document.getElementById('betaDisplay').innerText = model.beta.toFixed(2);
+        draw();
+    }
+    
+    class DQNAgent {
+        constructor() {
+            this.weights = [0.1,0.1,0.1,0.1,0.1].map(()=>Array(4).fill(0).map(()=>Math.random()*0.1));
+            this.epsilon = 0.3;
+        }
+        act(state) {
+            if(Math.random()<this.epsilon) return Math.floor(Math.random()*5);
+            let q = this.weights.map(w => w.reduce((s,wi,i)=>s+wi*state[i],0));
+            return q.indexOf(Math.max(...q));
+        }
+    }
+    
+    let agent = new DQNAgent();
+    let episode = 0, totalReward = 0;
+    
+    document.getElementById('trainBtn').onclick = function() {
+        model.reset();
+        let epReward = 0;
+        for(let step=0; step<50; step++) {
+            let state = [model.ip, model.beta, model.ne, model.te];
+            let action = agent.act(state);
+            if(action===0) model.ipCmd = Math.min(2.5, model.ipCmd+0.05);
+            if(action===1) model.ipCmd = Math.max(0.8, model.ipCmd-0.05);
+            if(action===2) model.betaCmd = Math.min(4.2, model.betaCmd+0.05);
+            if(action===3) model.betaCmd = Math.max(0.8, model.betaCmd-0.05);
+            if(action===4) model.heat = Math.min(15, model.heat+0.3);
+            model.step();
+            let reward = model.getReward();
+            epReward += reward;
+            if(model.isDisrupted()) break;
+        }
+        episode++;
+        totalReward = epReward;
+        document.getElementById('episode').innerText = episode;
+        document.getElementById('reward').innerText = totalReward.toFixed(2);
+        document.getElementById('epsilon').innerText = agent.epsilon.toFixed(2);
+        agent.epsilon = Math.max(0.01, agent.epsilon*0.99);
+        document.getElementById('results').innerHTML += `<div>#${episode}: ${totalReward.toFixed(2)}</div>`;
+        draw();
+    }
+    
+    draw();
+</script>
+</body>
+</html>
